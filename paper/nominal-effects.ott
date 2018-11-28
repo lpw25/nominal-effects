@@ -1,0 +1,620 @@
+metavar var, x, y, f ::=
+metavar typevar, a, b ::=
+metavar opname, o ::=
+metavar label, l ::=
+metavar namevar, m ::=
+metavar namesetvar, X ::=
+
+indexvar index, i, j ::=
+
+grammar
+n :: 'nm_' ::=
+  | l             ::  :: Label
+  | m             ::  :: Var
+  | shifted n     ::  :: Shifted
+  | unshifted n   ::  :: Unshifted
+  | { p } n       :: M:: Permute
+
+permutation, p :: 'perm_' ::=
+  | swap n1 n2    ::  :: Swap
+  | shift n       ::  :: Shift
+  | unshift n     ::  :: Unshift
+  | id            ::  :: Identity
+  | p1 . p2       ::  :: Composition
+  | p -1          :: M:: Inverse
+     {{ tex [[p]]^{-1} }}
+
+name_set, N :: 'pnset_' ::=
+  | 0                ::  :: Empty
+      {{ tex \emptyset }}
+  | P                ::  :: Positive
+      {{ tex \mathcal{U}^{+} }}
+  | +{ n }           ::  :: Singleton
+      {{ tex \{[[n]]\} }}
+  | -{ n }           ::  :: Cosingleton
+      {{ tex \mathcal{U}^{+} \setminus \{[[n]]\} }}
+  | N1 \/ N2         ::  :: Union
+      {{ tex [[N1]] \uplus [[N2]] }}
+  | N1 /\ N2         ::  :: Intersection 
+      {{ tex [[N1]] \nplus [[N2]] }}
+  | { p } N          :: M:: Permute
+  | ( N )            :: S:: Paren
+  
+kind, k :: 'knd_' ::=
+  | Type                          ::  :: Type
+     {{ tex \mathbf{T} }}
+  | Effect                        ::  :: Effect
+     {{ tex \mathbf{E} }}
+  | Context ( N )                 ::  :: Context
+      {{ tex \operatorname{\mathbf{C} }([[N]]) }}
+  | ( </ ki // i /> ) -> k        ::  :: Arrow
+
+type, t, r, s :: 'typ_' ::=
+  | a                           ::  :: Var
+  | t ( </ ti // i /> )         ::  :: Apply
+  | t1 -[ r ]-> t2              ::  :: Arrow
+      {{ tex [[t1]] \xrightarrow{[[r]]} [[t2]] }}
+  | forall a : k . t            ::  :: Forall
+      {{ tex \forall [[a]] : [[k]] . \, [[t]] }}
+  | exists a : k . t            ::  :: Exists
+      {{ tex \exists [[a]] : [[k]] . \, [[t]] }}
+  | name m -> t                 ::  :: NameArrow
+  | new name m -> t             ::  :: NewNameArrow
+  | [ n : t ]                 ::  :: Singleton
+  | t1 '|' t2                   ::  :: Union
+      {{ tex [[t1]] \, \| \, [[t2]] }}
+  | { p } t                     ::  :: Permute
+  | empty ( N )                 ::  :: Bottom
+      {{ tex \varepsilon_{[[N]]} }}
+  | t / N                       ::  :: Restriction
+  | t1 [ a :-> t2 ]             :: M:: SubstType
+  | t [ </ ai :-> ti // i /> ]  :: M:: SubstTypes
+  | t [ m :-> n ]               :: M:: SubstName
+  | ( t )                       :: S:: Paren
+
+expression, e :: 'exp_' ::=
+  | x                                      ::  :: Var
+  | lambda x : t . e                       ::  :: Abs
+      {{ tex \lambda [[x]] : [[t]] . \, [[e]] }}
+  | e1 e2                                  ::  :: Apply
+  | Lambda a : k . e                       ::  :: TypeAbs
+      {{ tex \Lambda [[a]] : [[k]] . \, [[e]] }}
+  | e t                                    ::  :: TypeApply
+  | pack ( t1 , e ) as exists a : k . t2   ::  :: Pack
+      {{ tex \ottkw{pack}([[t1]], \, [[e]]) \, \ottkw{as} \, \exists [[a]] : [[k]] . \, [[t2]] }}
+  | unpack e1 as ( a : k , x : t ) in e2   ::  :: Unpack
+  | name m . e                             ::  :: NameAbs
+  | new name m . e                         ::  :: NewNameAbs
+  | e (name n)                             ::  :: NameApply
+  | e (new name n)                         ::  :: NewNameApply
+  | let new name m in e                    ::  :: NewName
+  | { p } e                                ::  :: Permute
+  | perform n o ( e )                      ::  :: Perform
+  | handle n e [ h1 ; ... ; hi ; d ]       ::  :: Handle 
+
+value, v :: 'val_' ::=
+  | x                                      ::  :: Var
+  | lambda x : t . e                       ::  :: Abs
+  | Lambda a : k . e                       ::  :: TypeAbs
+  | pack ( t1 , v ) as exists a : k . t2   ::  :: Pack
+  | name m . e                             ::  :: NameAbs
+  | new name m . e                         ::  :: NewNameAbs
+  | perform n o ( v )                      ::  :: Perform
+
+handler, h :: 'hnd_' ::=
+  | o ( x1 : t1 ) , ( x2 : t2 ) => e     ::  :: Handler
+
+return, d :: 'rtn_' ::=
+  | return ( x : t ) => e         ::  :: Return
+
+signature, E {{ tex \sigma }} :: 'sig_' ::=
+  | ( </ ai : ki // i /> ) . [ op1 ; ... ; opj ]              ::  :: Sig
+
+operation, op :: 'op_' ::=
+  | o : t1 -> t2                ::  :: Op
+  | op [ </ ai :-> ti // i /> ] :: M:: SubstTypes
+  | etc ; o : t1 -> t2 ; etc    :: M:: Op_etc
+      {{ tex \ldots ; [[o]] : [[t1]] \rightarrow [[t2]] ; \ldots }}
+
+environment, G {{ tex \Gamma }} :: 'env_' ::=
+  | empty                          ::  :: Empty
+  | G , name m                     ::  :: Name
+  | G , new name m                 ::  :: NewName
+  | G , a : k                      ::  :: Abstract
+  | G , a = E                      ::  :: Signature
+  | G , x : t                      ::  :: Var
+  | G , </ ai : ki // i />         :: M:: Params
+  | G1 , G2                        :: M:: Append
+
+formula :: formula_ ::=  
+  | judgement             ::  :: judgement
+  | formula1 .. formulai  ::   :: dots
+  | G ( m )               ::  :: in_name_env
+  | G ( a ) = k           ::  :: in_type_env
+  | G ( a ) = E           ::  :: in_sig_env
+  | G ( x ) = t           ::  :: in_env
+  | disjoint N1 N2        ::  :: disjoint
+     {{ tex [[N1]] \cap [[N2]] = \emptyset }}
+  | codisjoint N1 N2      ::  :: codisjoint
+     {{ tex (\mathcal{U}^{+} \setminus [[N1]]) \cap (\mathcal{U}^{+} \setminus [[N2]]) = \emptyset }}
+  | subset N1 N2          ::  :: subset
+     {{ tex [[N1]] \subset [[N2]] }}
+
+terminals :: 'terminals_' ::=
+  | notmem                ::  :: notmem      {{ tex \notin }}
+  | mem                   ::  :: mem         {{ tex \in }}
+  | |-                    ::  :: turnstile   {{ tex \bm\vdash }}
+  | empty                 ::  :: empty       {{ tex \varepsilon }}
+  | ==>                   ::  :: bigarrow    {{ tex \bm\Rightarrow }}
+  | :->                   ::  :: mapsto      {{ tex \mapsto }}
+  | ->                    ::  :: arrow       {{ tex \rightarrow }}
+  | =>                    ::  :: darrow      {{ tex \Rightarrow }}
+
+subrules
+  value <:: expression
+
+defns
+Kinding :: '' ::=
+
+  defn
+  G |- n :: :: names :: 'name_' by
+
+     |- G
+    -------- :: label
+     G |- l
+
+     |- G
+     G(m)
+    -------- :: var
+     G |- m
+  
+     G |- n
+    ---------------- :: shifted
+     G |- shifted n
+
+     G |- n
+    ------------------ :: unshifted
+     G |- unshifted n
+
+  defn
+  G |- p :: :: permutations :: 'perms_' by
+
+     G |- n1
+     G |- n2
+    ----------------- :: swap
+     G |- swap n1 n2
+
+     G |- n
+    -------------- :: shift
+     G |- shift n
+  
+     G |- n
+    ---------------- :: unshift
+     G |- unshift n 
+
+  defn
+  G |- N :: :: name_set :: 'nset_' by
+
+     |- G
+    ----------- :: empty
+     G |- 0
+
+     |- G
+    ----------- :: positive
+     G |- P
+
+     G |- n
+    --------------- :: singleton
+     G |- +{ n }
+
+     G |- n
+    --------------- :: cosingleton
+     G |- -{ n }
+
+     disjoint N1 N2
+     G |- N1
+     G |- N2
+    ------------------ :: union
+     G |- N1 \/ N2
+
+     codisjoint N1 N2
+     G |- N1
+     G |- N2
+    ------------------ :: intersection
+     G |- N1 /\ N2
+
+  defn
+  |- G :: :: environmet :: 'env_' by
+
+    ------------ :: empty
+     |- empty
+
+     |- G
+    ---------------- :: name
+     |- G , name m
+
+     |- G
+    -------------------- :: new_name
+     |- G , new name m
+
+     G |- k
+    ---------------- :: abstract
+     |- G , a : k
+
+     G |- E
+    ---------------- :: signature
+     |- G , a = E
+
+     G |- t : Type
+    --------------- :: var
+     |- G, x : t
+  
+  defn
+  G |- k :: :: kind :: 'knd_' by
+
+     |- G
+    ----------- :: type
+     G |- Type
+
+     |- G
+    ------------- :: effect
+     G |- Effect
+
+     G |- N
+    -------------------- :: context
+     G |- Context ( N )
+
+     </ G |- ki // i />
+     G |- k
+    ------------------------- :: arrow
+     G |- (</ ki // i />) -> k
+
+  defn
+  G |- E :: :: signature :: 'sig_' by
+
+     G, </ ai : ki // i /> |- op1 ... G, </ ai : ki // i /> |- opj
+    ------------------------------------------------------------------ :: signature
+     G |- (</ ai : ki // i />). [ op1; ...; opj ]
+
+  defn
+  G |- op :: :: operations :: 'ops_' by
+
+     G |- t1 : Type
+     G |- t2 : Type
+    -------------------- :: op
+     G |- o : t1 -> t2
+
+  defn
+  G |- t : k :: :: typ :: 'typ_' by
+
+     G(a) = k
+    ------------ :: var
+     G |- a : k
+
+     G(a) = (</ ai : ki // i />). [ op1; ...; opj ]
+    ------------------------------------------------- :: sig
+     G |- a : (</ ki // i />) -> Effect
+
+     G |- t : (</ ki // i />) -> k
+     </ G |- ti : ki // i />
+    -------------------------------- :: apply
+     G |- t (</ ti // i />) : k
+  
+     G |- t1 : Type
+     G |- t2 : Type
+     G |- r : Context(P)
+    -------------------------- :: arrow
+     G |- t1 -[r]-> t2 : Type
+  
+     G, a : k |- t : Type
+    ------------------------------ :: forall
+     G |- forall a : k. t : Type
+
+     G, a : k |- t : Type
+    ------------------------------ :: exists
+     G |- exists a : k. t : Type
+
+     G, name m |- t : Type
+    ------------------------- :: name_arrow
+     G |- name m -> t : Type
+
+     G, new name m |- t : Type
+    ------------------------------ :: new_name_arrow
+     G |- new name m -> t : Type
+
+     G |- n
+     G |- t : Type
+    ----------------------------- :: singleton
+     G |- [n : t] : Context(+{n})
+
+     disjoint N1 N2
+     G |- t1 : Context(N1)
+     G |- t2 : Context(N2)
+    ---------------------------------- :: union
+     G |- t1 | t2 : Context(N1 \/ N2)
+
+     G |- p
+     G |- t : Context(N)
+    ------------------------------ :: permute
+     G |- { p } t : Context({p}N)
+
+     G |- N
+    --------------------------- :: bottom
+     G |- empty(N) : Context(N)
+
+     subset N2 N1
+     G |- t : Context(N1)
+     G |- N2
+    --------------------------- :: restriction
+     G |- t / N2 : Context(N2)
+
+  defn
+  G |- t : k # n :: :: type_fresh :: 'type_fresh_' by
+
+     G |- t : k # n
+    ------------------------ :: shifted
+     G |- t : k # shifted n
+
+     G |- t : k # n
+    -------------------------- :: unshifted
+     G |- t : k # unshifted n
+
+     G1 |- t : k
+    --------------------------------- :: var
+     G1, new name m, G2 |- t : k # m
+
+defns
+Equality :: '' ::=
+
+  defn
+  G |- t1 = t2 : k :: :: equality :: 'eql_' by
+
+     disjoint N1 N2
+     G |- t1 : Context(N1)
+     G |- t2 : Context(N2)
+    ------------------------------------- :: union_commutativity
+     G |- t1 | t2 = t2 | t1 : Context(N)
+
+     disjoint N1 N2
+     disjoint N1 N3
+     disjoint N2 N3
+     G |- t1 : Context(N1)
+     G |- t2 : Context(N2)
+     G |- t3 : Context(N3)
+    ------------------------------------------------------------------ :: union_associativity
+     G |- t1 | (t2 | t3) = (t1 | t2) | t3 : Context(N1 \/ (N2 \/ N3))
+
+     subset N1 N3
+     subset N2 N3
+     disjoint N1 N2
+     G |- t : Context(N3)
+    ------------------------------------------------------------- :: restriction_union
+     G |- (t / N1) | (t / N2) = t / N1 \/ N2 : Context(N1 \/ N2)
+    
+     G |- n
+     G |- t : Type
+    -------------------------------------------- :: singleton_restriction
+     G |- [n : t] / +{n} = [n : t] : Context(N)
+    
+     subset N3 N1
+     disjoint N1 N2
+     G |- t1 : Context(N1)
+     G |- t2 : Context(N2)
+    --------------------------------------------- :: union_restriction_left
+     G |- (t1 | t2) / N3 = t1 / N3 : Context(N3)
+
+     subset N3 N1
+     subset N4 N2
+     disjoint N1 N2
+     G |- t1 : Context(N1)
+     G |- t2 : Context(N2)
+    ----------------------------------------------------------------------- :: union_restriction_both
+     G |- (t1 | t2) / N3 \/ N4 = (t1 / N3) | (t2 / N4) : Context(N3 \/ N4)
+
+     subset {p-1}N2 N1
+     G |- p
+     G |- t : Context(N1)
+    --------------------------------------------------- :: permute_restriction
+     G |- ({p}t) / N2 = {p}(t / {p-1}N2) : Context(N2)
+
+     subset N2 N1
+     G |- N1
+     G |- N2
+    ----------------------------------------------- :: empty_restriction
+     G |- empty(N1) / N2 = empty(N2) : Context(N2)
+
+     subset +{n} N1
+     G |- a : Context(N1) # n
+    -------------------------------------------- :: fresh_restriction
+     G |- a / +{n} = empty(+{n}) : Context(+{n})
+
+     disjoint N1 N2
+     G |- t1 : Context(N1)
+     G |- t2 : Context(N2)
+    --------------------------------------------------------------------- :: permute_union
+     G |- {p}(t1 | t2) = ({p}t1) | ({p}t2) : Context(({p}N1) \/ ({p}N2))
+
+     G |- p
+     G |- n
+     G |- t : Type
+    ------------------------------------------------ :: permute_singleton
+     G |- {p} [n : t] = [{p} n : t] : Context({p}N)
+
+     G |- t : Context(N)
+    ------------------------------ :: permute_identity
+     G |- {id} t = t : Context(N)
+
+     G |- p1
+     G |- p2
+     G |- t : Context(N)
+    ------------------------------------------------------ :: permute_compose
+     G |- {p1} {p2} t = {p1 . p2} t : Context({p1 . p2}N)
+
+defns
+Subtyping :: '' ::=
+
+  defn
+  G |- t1 <: t2 : k :: :: subtyping :: 'sub_' by
+
+     G |- t21 <: t11 : Type
+     G |- t12 <: t22 : Type
+     G |- t13 <: t23 : Type
+    -------------------------------------------------- :: arrow
+     G |- t11 -[t12]-> t13 <: t21 -[t22]-> t23 : Type
+
+     G, a : k |- t1 <: t2 : Type
+    ---------------------------------------------------- :: forall
+     G |- forall a : k . t1 <: forall a : k . t2 : Type
+
+     G, a : k |- t1 <: t2 : Type
+    ---------------------------------------------------- :: exists
+     G |- exists a : k . t1 <: exists a : k . t2 : Type
+
+     G, name m |- t1 <: t2 : Type
+    ------------------------------------------ :: name_arrow
+     G |- name m -> t1 <: name m -> t2 : Type
+
+     G, new name m |- t1 <: t2 : Type
+    -------------------------------------------------- :: new_name_arrow
+     G |- new name m -> t1 <: new name m -> t2 : Type
+
+     disjoint N1 N2
+     G |- t11 <: t21 : Context(N1)
+     G |- t12 <: t22 : Context(N2)
+    ------------------------------------------------- :: union
+     G |- t11 | t12 <: t21 | t22 : Context(N1 \/ N2)
+
+     G |- t : Context(N)
+    --------------------------------- :: empty
+     G |- empty(N) <: t : Context(N)
+     
+     G |- t1 = t2 : k
+    ------------------- :: reflexivity
+     G |- t1 <: t2 : k
+
+     G |- t1 <: t2 : k
+     G |- t2 <: t3 : k
+    ------------------- :: transitivity
+     G |- t1 <: t3 : k
+
+defns
+Typing :: '' ::=
+
+  defn
+  G |- e : t ! r :: :: expression :: 'expr_'
+    {{ tex [[G]] \bm\vdash [[e]] : [[t]] \, ! \, [[r]] }} by
+
+     G |- r : Context(P)
+     G(x) = t
+    ----------------- :: var
+     G |- x : t ! r
+
+     G |- r2 : Context(P)
+     G, x : t1 |- e : t2 ! r1
+    -------------------------------------------- :: abs
+     G |- lambda x : t. e : t1 -[r1]-> t2 ! r2
+
+     G |- e1 : t1 -[r]-> t2 ! r
+     G |- e2 : t1 ! r
+    ---------------------------------- :: apply
+     G |- e1 e2 : t2 ! r
+
+     G |- r : Context(P)
+     G, a : k |- e : t ! empty(P)
+    -------------------------------------------- :: type_abs
+     G |- Lambda a : k. e : forall a : k. t ! r
+
+     G |- t1 : k
+     G |- e : forall a : k . t2 ! r
+    -------------------------------- :: type_apply
+     G |- e t1 : t2 [a :-> t1] ! r
+
+     G, a : k |- t2 : Type
+     G |- e : t2 [a :-> t1] ! r
+    --------------------------------------------------------------- :: type_pack
+     G |- pack (t1 , e) as exists a : k. t2 : exists a : k. t2 ! r
+     
+     G |- e1 : exists a : k. t1 ! r
+     G, a : k, x : t1 |- e2 : t2 ! r
+     G |- t2 : Type
+    -------------------------------------------------- :: type_unpack
+     G |- unpack e1 as (a : k, x : t1) in e2 : t2 ! r
+
+     G |- r : Context(P)
+     G, name m |- e : t ! empty(P)
+    ------------------------------------ :: name_abs
+     G |- name m . e : name m -> t ! r
+
+     G |- r : Context(P)
+     G, new name m |- e : t ! empty(P)
+    ---------------------------------------- :: new_name_abs
+     G |- new name m . e : name m -> t ! r
+
+     G |- n
+     G |- e : name m -> t ! r
+    ------------------------------------ :: name_apply
+     G |- e (name n) : t [m :-> n] ! r
+
+     G |- e : new name m -> t ! r # n
+    --------------------------------------- :: new_name_apply
+     G |- e (new name n) : t [m :-> n] ! r
+
+     G, new name m |- e : t ! r
+    ----------------------------------- :: new_name
+     G |- let new name m in e : t ! r
+
+     G |- p
+     G |- e : t ! r
+    ------------------------ :: permute
+     G |- {p} e : t ! {p} r
+
+     G |- n
+     G(a) = (</ ai : ki // i />). [ etc ; o : t -> t' ; etc ]
+     </ G |- ti : ki // i />
+     G |- r : Context(-{n})
+     G |- e : t [</ ai :-> ti // i />] ! [n : a (</ ti // i />)] | r
+    ---------------------------------------------------------------------------------- :: perform
+     G |- perform n o ( e ) : t' [</ ai :-> ti // i />] ! [n : a (</ ti // i />)] | r
+
+     G |- n
+     G(a) = (</ ai : ki // i />). [ op1; ...; opj ]
+     G |- e : t1 ! [n : a (</ ti // i />)] | r
+     G |- h1 : op1 [</ ai :-> ti // i />] ==> t2 ! {unshift n} r ... G |- hj : opj [</ ai :-> ti // i />] ==> t2 ! {unshift n} r
+     G |- d : t1 ==> t2 ! {unshift n} r
+    -------------------------------------------------- :: handle
+     G |- handle n e [ h1; ...; hj; d ] : t2 ! {unshift n} r
+
+     G |- e : t1 ! r1
+     G |- t1 <: t2 : Type
+     G |- r1 <: r2 : Context(P)
+    ---------------------------- :: subsumption
+     G |- e : t2 ! r2 
+
+  defn
+  G |- e : t ! r # n :: :: expression_fresh :: 'expr_fresh_' by
+
+     G |- e : t ! r # n
+    ---------------------------- :: shifted
+     G |- e : t ! r # shifted n
+
+     G |- e : t ! r # n
+    ------------------------------ :: unshifted
+     G |- e : t ! r # unshifted n
+
+     G1 |- e : t ! r
+    -------------------------------------- :: var
+     G1, new name m, G2 |- e : t ! r # m
+
+  defn
+  G |- h : op ==> t ! r :: :: handler :: 'hnd_' by
+
+     G, x1 : t1, x2 : t2 -[r]-> t3 |- e : t3 ! r
+    ------------------------------------------------------------------------- :: handler
+     G |- o (x1 : t1) , (x2 : t2 -[r]-> t3) => e : o1 : t1 -> t2 ==> t3 ! r
+
+  defn
+  G |- d : t1 ==> t2 ! r :: :: return :: 'rtn_' by
+
+     G, x : t1 |- e : t2 ! r
+    --------------------------------------------- :: handler
+     G |- return ( x : t1 ) => e : t1 ==> t2 ! r

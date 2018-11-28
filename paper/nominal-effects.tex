@@ -1,0 +1,321 @@
+\documentclass{article}
+\usepackage{supertabular}
+\usepackage{bm}
+\usepackage{mathpartir}
+\usepackage{amsmath,amssymb}
+\usepackage{stmaryrd}
+\usepackage{supertabular}
+\usepackage{geometry}
+\usepackage{ifthen}
+\usepackage{alltt}%hack
+\geometry{a4paper,dvips,twoside,left=22.5mm,right=22.5mm,top=20mm,bottom=30mm}
+\usepackage{color}
+
+\usepackage{listings}
+\lstdefinestyle{ocaml}
+{
+  language=[Objective]Caml,
+  escapeinside={(**}{*)},
+  morekeywords={handle, return, effect, shift},
+  basicstyle=\ttfamily,
+  commentstyle=\color{green},
+  keywordstyle=\color{blue},
+  stringstyle=\color{mauve},
+}
+
+\lstset{
+  showstringspaces=false,
+  style=ocaml,
+}
+\newcommand{\code}[2][ocaml]{\lstinline[style={#1}]{#2}}
+
+\input{nominal-effects-gen.tex}
+
+\renewcommand{\ottusedrule}[1]{#1 \and}
+\renewenvironment{ottdefnblock}[3][]
+  { \framebox{ \mbox{#2} } \quad \begin{mathpar}#3 }
+  { \end{mathpar} }
+
+\title{Nominal algebraic effects}
+\author{Leo White}
+\date{}
+\begin{document}
+\maketitle
+\section{Introduction}
+Algebraic effects were originally introduced\cite{??} to study the
+semantics of computational effects. With the addition of
+handlers\cite{??} they have become an exciting new programming construct
+for implementing such effects. They have appeared in a number of
+experimental language\cite{??} allowing convenient implementations of
+other important language features, including exceptions, coroutines,
+generators, state, and cooperative concurrency.
+Whilst existing implementations of algebraic effects have shown them to
+be very useful, there are some subtle issues around the design of
+algebraic effect systems that a number of recent papers have tried to
+address\cite{??}. In this paper, we suggest that these issues be framed
+as instances of the age-old problem of how to represent structures with
+binding, and propose using the powerful tools from nominal
+techniques\cite{??} to address them.
+
+\subsection{Relating operations and handlers}
+
+The core idea behind algebraic effects is to separate purely syntactic
+effectful operations from their semantic interpretation via
+handlers. For example, a computation might use the \code{Get} and
+\code{Set} operations of a state effect:
+\begin{lstlisting}
+let incr () =
+  let prev = Get () in
+  Set (prev + 1)
+\end{lstlisting}
+These operations can then be given a meaning by placing the compuation
+within an effect handler:
+\begin{lstlisting}
+let three =
+  let run =
+    handle incr (); incr (); incr () with
+    | return x -> (fun s -> s)
+    | Get (), k -> (fun s -> k s s)
+    | Set y, k -> (fun _ -> k () y)
+  in
+  run 0
+\end{lstlisting}
+The effect handler defines how each operation of the effect is
+interpreted along with a \code{return} clause giving an interpretation
+for pure values.
+
+Separating the operations and the handlers like this makes it easy to
+define computations which use multiple effects by just using operations
+from different effects within a single expression. To handle such
+expressions we simply enclose them in multiple effect handlers. These
+effect handlers, and the order in which they are placed, define
+the semantics of the combined effects.
+
+For example, this computation uses the \code{Raise} operation from an
+exception effect in combination with a state effect:
+\begin{lstlisting}
+let least less_than list =
+  match list with
+  | [] -> Raise ()
+  | first :: rest ->
+      Set first;
+      List.iter
+        (fun item -> if less_than next (Get ()) then Set next)
+        rest;
+      Get ()
+\end{lstlisting}
+and it can be given a meaning using a two handlers:
+\begin{lstlisting}
+let handle_state init f =
+  let run =
+    handle f () with
+    | return x -> (fun _ -> x)
+    | Get (), k -> (fun s -> k s s)
+    | Set y, k -> (fun _ -> k () y)
+  in
+  run init
+
+let least_int list =
+  let less_than x y = x < y in
+  handle
+    handle_state 0
+     (fun () -> least less_than list)
+  with
+  | return x -> x
+  | Raise (), k -> 0
+\end{lstlisting}
+
+In cases like this where there is a single handler for each kind of
+effect it is obvious which handler handles each operation. It is simply
+a matter of tracking which handlers enclose each operation and then
+relating the operation to the enclosing handler that handles that
+operation.
+
+However, things become more difficult when there are multiple handlers
+for the same effect. Consider the following code, which uses the
+\code{handle_sate} function from the previous example:
+\begin{lstlisting}
+let map f l =
+  List.rev
+    (handle_state []
+      (fun () -> List.iter (fun i -> Set (f i) :: Get()) l))
+
+let multiply_by_index l =
+  handle_state 0
+    (fun () -> map (fun i -> Set (Get() + 1); i * Get()))
+\end{lstlisting}
+Here we have two nested handlers for the state effect. It is clear the
+intention is for the uses of \code{Set} and \code{Get} in the \code{map}
+function to be handled by the state handler introduced in the \code{map}
+function, whist the uses of \code{Set} and \code{Get} in the
+\code{multiply_by_index} function are intended to be handled by the
+state handler introduced in the \code{multiply_by_index}
+function. However, the nearest enclosing state handler for all the
+operations is the one introduced by the \code{map} function, and so by
+default that is the one that existing systems would choose to handle
+all of the operations.
+
+The original semantic presentation of algebraic effects considered the
+operations as families of algebraic operations on computations. From
+that perspective, the an application of \code{multiply_by_index} looks
+something like:
+\begin{lstlisting}
+  handle
+    handle
+      Get()(fun acc ->
+        Get()(fun idx ->
+          Set(idx + 1)(fun () ->
+            Get()(fun idx ->
+              Set(idx * i :: acc)(fun () ->
+                ...
+              )
+            )
+          )
+        )
+      )
+    with
+    | return x -> (fun _ -> x)
+    | Get (), k -> (fun s -> k s s)
+    | Set y, k -> (fun _ -> k () y)
+  with
+  | return x -> (fun _ -> x)
+  | Get (), k -> (fun s -> k s s)
+  | Set y, k -> (fun _ -> k () y)
+\end{lstlisting}
+Presented this way, it is clear that handlers essentially bind the names
+of operations, and that the issue with \code{multiply_by_index} is one
+of accidental capture of bound names.
+
+Existing algebraic effect systems solve this issue, if they solve it at
+all, by provide a \code{shift} or \code{lift} construct that allows the
+nearest enclosing effect handler to be hidden from a
+sub-expression. This allows us to fix \code{multiply_by_index} by
+changing the definition of \code{map} to:
+\begin{lstlisting}
+let map f l =
+  List.rev
+    (handle_state []
+      (fun () -> List.iter (fun i -> Set (shift[Get, Set] (f i)) :: Get()) l))
+\end{lstlisting}
+This approach is equivalent to using Debruijn indices: operations have
+an index that determines how many enclosing handlers must be passed
+through before it can be handled, and \code{shift} increments the
+indices of all operations it encloses. Debruijn indices are a popular
+method for representing binding in data structures and algorithms, but
+they are generally considered to be too cumbersome for people to use
+directly.
+
+A similar problem arises when trying to abstract over effects. ?? et
+al.\cite{??} describe, as a motivating example, creating an interface
+for union-find:
+\begin{lstlisting}
+type 'a set
+effect 'a uf
+val new : 'a -['a uf]-> 'a set
+val find : 'a set -['a uf]-> 'a
+val union : ('a -> 'a -['r]-> 'a) -> 'a set -> 'a set -['a uf | 'r]-> unit
+val with_uf : (unit -['a uf | 'r]-> 'b) -['r]-> 'b
+\end{lstlisting}
+where the union-find operations \code{new}, \code{find} and \code{union}
+all perform some effect \code{uf}, which can be handled using the
+\code{with_uf} function. By keeping \code{uf} abstract, the interface
+ensures that all the operations performed by \code{new}, \code{find} and
+\code{union} will only ever be handled by \code{with_uf} and thus they
+can rely on invariants guaranteed by that handler.
+
+However, consider code which mixes this abstract effect with other
+effects:
+\begin{lstlisting}
+handle_state 0 (fun () ->
+  with_uf (fun () ->
+    ...; Get (); ...
+  )
+)
+\end{lstlisting}
+Whether or not this code works as intended depends on whether or not the
+\code{uf} effect is defined as the state effect or not. If \code{uf}
+is defined as the state effect then we should instead use:
+\begin{lstlisting}
+handle_state 0 (fun () ->
+  with_uf (fun () ->
+    ...; shift uf Get (); ...
+  )
+)
+\end{lstlisting}
+but if \code{uf} is not defined as the state effect then the first
+version was right and this second version is wrong. ?? et al. address
+this issue by provide more coercions similar to \code{shift} that allow
+the above code to be written in a way that will work regardless of the
+effect choosen for \code{uf}. However, this has reduced us to using the
+equivalent of Debruijn indices for all our effects as soon as one of
+them is made abstract.
+
+This issue comes from the fact that existing algebraic effect systems
+use a single notion of effect type to represent both which operations an
+effect contains -- which we would like to make abstract -- and how
+operations should be related to handlers -- which we would like to keep
+concrete.
+
+\subsection{Nominal techniques}
+
+Nominal techniques\cite{??} are an approach to handling structures with
+binding based around \emph{permutations} of names and the notion of
+\emph{freshness}. They have been used in a wide variety of
+applications\cite{??} to handle terms with binding.
+
+A number of languages have been proposed with built-in support for
+nominal operations\cite{??}. Such languages support generating fresh
+names, name abstraction, fresh name abstraction, and application of
+permutations. These operations allow manipulation of structures with
+binding, and aim to be more convenient to use than other techniques,
+such as Debruijm indices or Higher-order Abstract Syntax.
+
+\subsection{Contributions}
+
+\begin{itemize}
+\item We introduce nominal algebraic effects as a convenient approach to
+  managing the relationship between operations and handlers.
+\item We provide a core calculus implementing nominal algebraic
+  effect. We define the type-and-effect system and operational semantics
+  of this calculus, and show they are sound using logical relations.
+\item We extend the core calculus to support \emph{shift-permutations}
+  to enable Debruijn-style handling of effects in a nominal setting.
+\item We extend the core calculus to support recursion. This involves
+  adding support for recursive types to accurately describe the
+  principal types of recursive expressions.
+\item We provide an implementation of a simple surface language based on
+  the core calculus.
+\end{itemize}
+
+\section{Managing effects with nominal techniques}
+
+% Give an overview of how nominal effects works
+% Show how the examples from the introduction are handled
+% Show some additional example of why the system is good
+\section{Core calculus}
+\subsection{Grammer}
+\subsubsection{Meta-variables}
+\ottmetavars
+\subsubsection{Productions}
+\ottgrammar
+\subsection{Typing judgements}
+\ottdefnsKinding
+\ottdefnsEquality
+\ottdefnsSubtyping
+\ottdefnsTyping
+\section{Soundness}
+% Demonstrate soundness of the system
+% Preferably using logical relations
+% but if that's too hard just do preservation and progress
+\section{Extending the core calculus with shift}
+% Show an example where shift is useful
+% Describe the changes to the core calculus needed to support it
+\section{Extending the core calculus with recursion}
+% Show an example using recursion whose principal type requires recursive types
+% Describe the changes to the core calculus needed to support it
+\section{Prototype implementation}
+% Short description of prototype implementation
+% Main thing is to give an outline of how/why type inference works
+\section{Related work}
+\section{Future work}
+\end{document}
