@@ -457,7 +457,7 @@ Subtyping :: '' ::=
   G |- t1 <: t2 : k :: :: subtyping :: 'sub_' by
 
      G |- t21 <: t11 : Type
-     G |- t12 <: t22 : Type
+     G |- t12 <: t22 : Context(P)
      G |- t13 <: t23 : Type
     -------------------------------------------------- :: arrow
      G |- t11 -[t12]-> t13 <: t21 -[t22]-> t23 : Type
